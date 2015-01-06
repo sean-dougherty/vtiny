@@ -24,6 +24,28 @@ public:
     static VindexOperator *get(OperatorType optype);
 };
 
+struct VindexTable {
+    VindexTable(uint (*op_)(uint accum)) : op(op_) {
+    }
+
+    uint (*op)(uint accum);
+};
+
+struct VindexTableLookup {
+    static VindexTable *tables[256];
+
+    VindexTableLookup();
+
+    inline VindexTable *get(uchar index) {
+        return tables[index];
+    }
+};
+extern VindexTableLookup table_lookup;
+
+inline uint VindexOperator::op(uint accum) {
+    return table_lookup.get(vindex)->op(accum);
+}
+
 //------------------------------------------------------------
 //---
 //--- Virtual
