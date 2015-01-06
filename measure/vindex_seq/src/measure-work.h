@@ -25,8 +25,7 @@ struct VindexTable {
 
 struct VindexOperator {
 private:
-    //vindex_t vindex;
-    VindexTable *table;
+    vindex_t vindex;
     VindexOperator(OperatorType optype);
 
 public:
@@ -48,8 +47,7 @@ struct VindexTableLookup {
 extern VindexTableLookup table_lookup;
 
 inline uint VindexOperator::op(uint accum) {
-    //return table_lookup.get(vindex)->op(accum);
-    return table->op(accum);
+    return table_lookup.get(vindex)->op(accum);
 }
 
 //------------------------------------------------------------

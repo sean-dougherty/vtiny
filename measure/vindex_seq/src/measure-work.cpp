@@ -29,9 +29,7 @@ VindexTableLookup::VindexTableLookup() {
 }
 
 VindexOperator::VindexOperator(OperatorType optype)
-//    : vindex(optype) {
-{
-    table = table_lookup.get(optype);
+    : vindex(optype) {
 }
 
 VindexOperator *VindexOperator::create(OperatorType optype) {
