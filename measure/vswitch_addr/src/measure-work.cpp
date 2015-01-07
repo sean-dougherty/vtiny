@@ -6,16 +6,13 @@
 //--- Vswitch
 //---
 //------------------------------------------------------------
-VswitchOperator::VswitchOperator(OperatorType optype)
-    : vswitch(optype) {
-}
 
 VswitchOperator *VswitchOperator::create(OperatorType optype) {
-    return new VswitchOperator(optype);
+    return encode(new VswitchOperator(), optype);
 }
 
 void VswitchOperator::dispose(VswitchOperator *op) {
-    delete op;
+    delete decode_addr(op);
 }
 
 //------------------------------------------------------------

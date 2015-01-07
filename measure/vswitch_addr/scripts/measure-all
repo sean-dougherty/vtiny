@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -e
+
+if [ "$1" == "-g" ]; then
+    COMPILERS="g++"
+    OPTS="-O0"
+    N_ELEMENTS=1e3
+    N_ITERATIONS=1e2
+    N_SAMPLES=30
+else
+    COMPILERS="g++ clang++"
+    OPTS="-O2"
+    N_ELEMENTS=1e6
+    N_ITERATIONS=10
+    N_SAMPLES=30
+fi
+
+function run_config() {
+    echo "==="
+    echo "=== $*"
+    echo "==="
+
+    compiler="$1"
+    opt="$2"
+
+    hostname=$(hostname)
+    out_suffix=${N_ELEMENTS}_${N_ITERATIONS}_${N_SAMPLES}_${compiler}_${opt}_${hostname}
+
+    out_measure=results/measure_${out_suffix}
+    out_analyze=results/analyze_${out_suffix}
+
+    mkdir -p $(dirname $out_measure)
+    
+    cat > $out_measure <<EOF
+--- compiler details ---
+`${compiler} -v -march=native 2>&1`
+--- cpu details ---
+`cat /proc/cpuinfo`
+EOF
+    sed -i "s/\(.*\)/#\1/g" $out_measure
+
+    echo "compiling..."
+    export CXXFLAGS="${opt}"
+    export CXX=${compiler}
+    make clean
+    make
+    echo "collecting samples..."
+    time bld/measure $N_ELEMENTS $N_ITERATIONS $N_SAMPLES > $out_measure
+}
+
+for compiler in $COMPILERS; do
+    if $(which $compiler &> /dev/null); then
+        for opt in $OPTS; do
+            (
+                set -e
+                run_config $compiler $opt
+            )
+        done
+    fi
+done

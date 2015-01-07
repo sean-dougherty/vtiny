@@ -15,12 +15,9 @@ enum OperatorType {
 //--- Vswitch
 //---
 //------------------------------------------------------------
-typedef uchar vswitch_t;
-
 struct VswitchOperator {
 private:
-    vswitch_t vswitch;
-    VswitchOperator(OperatorType optype);
+    uint pad;
 
 public:
     uint op(uint accum);
@@ -28,6 +25,19 @@ public:
     static VswitchOperator *create(OperatorType optype);
     static void dispose(VswitchOperator *op);
 };
+
+inline VswitchOperator *encode(VswitchOperator *op, OperatorType optype) {
+    return (VswitchOperator *)(size_t(op) | optype);
+}
+
+inline OperatorType decode_type(VswitchOperator *op) {
+    return OperatorType(size_t(op) & 0x3);
+} 
+
+inline VswitchOperator *decode_addr(VswitchOperator *op) {
+    return (VswitchOperator *)(size_t(op) & ~0x3);
+} 
+
 
 inline uint op_add(uint accum) {
     return accum + 2;
@@ -46,7 +56,7 @@ inline uint op_div(uint accum) {
 };
 
 inline uint VswitchOperator::op(uint accum) {
-    switch(vswitch) {
+    switch(decode_type(this)) {
     case Add:
         return op_add(accum);
     case Sub:
@@ -66,6 +76,7 @@ inline uint VswitchOperator::op(uint accum) {
 //---
 //------------------------------------------------------------
 struct VirtualOperator {
+    uint pad;
     virtual ~VirtualOperator() {}
     virtual uint op(uint accum) = 0;
 
