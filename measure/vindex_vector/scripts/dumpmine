@@ -1,0 +1,10 @@
+set -e
+
+export CXX=clang++
+export CXXFLAGS="-O2 -DDUMP_MINE"
+output=tmp/mine.s
+
+make
+mkdir -p tmp
+objdump -S bld/measure > $output
+echo "dumped to $output"

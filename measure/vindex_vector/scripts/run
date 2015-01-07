@@ -1,0 +1,1 @@
+scripts/measure-all "$*" && scripts/analyze results/* && emacs $(sed -e "s/measure/analyze/g" results/recent)
