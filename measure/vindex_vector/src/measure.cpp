@@ -28,13 +28,6 @@ struct TypeTest {
     }
 
     template<typename worker_t>
-    void dispose_ops(typename worker_t::vec &ops) {
-        for(uint i = 0; i < n_elements; i++) {
-            worker_t::dispose(ops[i]);
-        }
-    }
-
-    template<typename worker_t>
     uint dowork(typename worker_t::vec &ops) {
         uint accum = 0;
         
@@ -69,7 +62,6 @@ public:
         {
             typename checksum_t::vec checksum_ops = create_ops<checksum_t>();
             expected_accum = dowork<checksum_t>(checksum_ops);
-            dispose_ops<checksum_t>(checksum_ops);
         }
         print("#expected_accum=" << expected_accum);
 #endif
@@ -85,7 +77,6 @@ public:
 
             print(type_name << "\t" << sample.work_time);
         }
-        dispose_ops<operator_t>(ops);
     }
 };
 

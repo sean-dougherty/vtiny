@@ -35,7 +35,6 @@ public:
     uint op(uint accum);
 
     static VindexOperator create(OperatorType optype);
-    static void dispose(VindexOperator &op);
 
     VindexOperator *operator->() {
         return this;
@@ -63,10 +62,9 @@ inline uint VindexOperator::op(uint accum) {
 //---
 //------------------------------------------------------------
 struct VirtualOperator {
-    typedef std::vector<VirtualOperator *> vec;
+    typedef std::vector<std::unique_ptr<VirtualOperator> > vec;
     virtual ~VirtualOperator() {}
     virtual uint op(uint accum) = 0;
 
-    static VirtualOperator *create(OperatorType optype);
-    static void dispose(VirtualOperator *op);
+    static std::unique_ptr<VirtualOperator> create(OperatorType optype);
 };

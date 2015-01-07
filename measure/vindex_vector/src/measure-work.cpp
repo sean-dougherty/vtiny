@@ -43,10 +43,6 @@ VindexOperator VindexOperator::create(OperatorType optype) {
     }
 }
 
-void VindexOperator::dispose(VindexOperator &op) {
-    //nop
-}
-
 //------------------------------------------------------------
 //---
 //--- Virtual
@@ -64,17 +60,13 @@ struct VirtualSub : public VirtualOperator {
     }
 };
 
-VirtualOperator *VirtualOperator::create(OperatorType optype) {
+std::unique_ptr<VirtualOperator> VirtualOperator::create(OperatorType optype) {
     switch(optype) {
     case Add:
-        return new VirtualAdd();
+        return std::unique_ptr<VirtualOperator>(new VirtualAdd());
     case Sub:
-        return new VirtualSub();
+        return std::unique_ptr<VirtualOperator>(new VirtualSub());
     default:
         abort();
     }
-}
-
-void VirtualOperator::dispose(VirtualOperator *op) {
-    delete op;
 }
