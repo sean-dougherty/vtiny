@@ -3,7 +3,7 @@
 using namespace std;
 
 struct NonPOD0 {
-    const char *id;
+    string id;
     NonPOD0(const char *id_) : id(id_) {
         cout << "NonPOD0(" << id << ")" << endl;
     }
@@ -13,7 +13,8 @@ struct NonPOD0 {
 };
 
 namespace __clunion {
-    typedef unsigned int vindex_t;
+    typedef unsigned char vindex_t;
+
     template<typename T> constexpr
     T const& max(T const& a, T const& b) {
         return a > b ? a : b;
@@ -25,11 +26,16 @@ namespace __clunion {
             A, B
         };
 
-        void dispatch_vecho(void *thiz);
+        void dispatch_vecho(struct A *thiz);
 
         struct A {
             int a_i;
             NonPOD0 np0;
+            vindex_t __clunion_vindex;
+
+            void __clunion_set_vindex(Ids id) {
+                __clunion_vindex = (vindex_t)id;
+            }
 
             A(int a_i_) : np0("np0") {
                 cout << "A(" << a_i_ << ")" << endl;
@@ -47,11 +53,17 @@ namespace __clunion {
             void secho() {
                 cout << "A::secho()" << endl;
             }
-            static void __clunion_call_dtor(void *thiz) {
-                ((A *)thiz)->~A();
+            static void __clunion_call_copy(A *thiz, const A &other) {
+                new ((A *)thiz)A((const A&)other);
             }
-            static void __clunion_call_vecho(void *thiz) {
-                ((A *)thiz)->__clunion_virtual_vecho();
+            static void __clunion_call_assign(A *thiz, const A &other) {
+                *((A *)thiz) = (const A&)other;
+            }
+            static void __clunion_call_dtor(A *thiz) {
+                thiz->~A();
+            }
+            static void __clunion_call_vecho(A *thiz) {
+                thiz->__clunion_virtual_vecho();
             }
         };
 
@@ -75,34 +87,57 @@ namespace __clunion {
             void secho() {
                 cout << "B::secho()" << endl;
             }
-            static void __clunion_call_dtor(void *thiz) {
+            static void __clunion_call_copy(A *thiz, const A &other) {
+                new ((B *)thiz)B((const B&)other);
+            }
+            static void __clunion_call_assign(A *thiz, const A &other) {
+                *((B *)thiz) = (const B&)other;
+            }
+            static void __clunion_call_dtor(A *thiz) {
                 ((B *)thiz)->~B();
             }
-            static void __clunion_call_vecho(void *thiz) {
+            static void __clunion_call_vecho(A *thiz) {
                 ((B *)thiz)->__clunion_virtual_vecho();
             }
         };
 
-        constexpr size_t sizeof_A_members = max(sizeof(A), sizeof(B));
+        constexpr size_t sizeof_members = max(sizeof(A), sizeof(B));
 
         struct Vtable {
-            void (*dtor)(void*);
-            void (*vecho)(void*);
+            void (*copy)(A*,const A&);
+            void (*assign)(A*,const A&);
+            void (*dtor)(A*);
+            void (*vecho)(A*);
         };
         Vtable vtables[] = {
-            {&A::__clunion_call_dtor, &A::__clunion_call_vecho},
-            {&B::__clunion_call_dtor, &B::__clunion_call_vecho}
+            {&A::__clunion_call_copy, &A::__clunion_call_assign, &A::__clunion_call_dtor, &A::__clunion_call_vecho},
+            {&B::__clunion_call_copy, &B::__clunion_call_assign, &B::__clunion_call_dtor, &B::__clunion_call_vecho}
         };
 
-        vindex_t get_vindex(void *thiz) {
-            return *(vindex_t *)((char*)thiz + sizeof_A_members);
+        vindex_t get_vindex(const A *thiz) {
+            return thiz->__clunion_vindex;
+        }
+        void set_vindex(A *thiz, vindex_t vindex) {
+            thiz->__clunion_vindex = vindex;
         }
 
-        void dispatch_dtor(void *thiz) {
+        void dispatch_copy(A *thiz, const A &other) {
+            vtables[get_vindex(thiz)].copy(thiz, other);
+        }
+        void dispatch_dtor(A *thiz) {
             vtables[get_vindex(thiz)].dtor(thiz);
         }
-        void dispatch_vecho(void *thiz) {
+        void dispatch_vecho(A *thiz) {
             vtables[get_vindex(thiz)].vecho(thiz);
+        }
+        void dispatch_assign(A *thiz, const A &other) {
+            if(get_vindex(thiz) != get_vindex(&other)) {
+                dispatch_dtor(thiz);
+                set_vindex(thiz, get_vindex(&other));
+                dispatch_copy(thiz, other);
+            } else {
+                vtables[get_vindex(thiz)].assign(thiz, other);
+            }
         }
     }
 }
@@ -132,25 +167,31 @@ clunion A {
 struct A {
 protected:
     A() {}
-    struct __clunion_members_t {
-        char buffer[__clunion::clunion_A::sizeof_A_members];
-        __clunion::vindex_t vindex;
-    } __clunion_members;
-    __clunion::clunion_A::A *thiz() {
-        return ((__clunion::clunion_A::A *)__clunion_members.buffer);
+    char __clunion_members[__clunion::clunion_A::sizeof_members];
+    __clunion::clunion_A::A *__clunion_this() const {
+        return ((__clunion::clunion_A::A *)__clunion_members);
     }
 
 public:
+    A(const A &other) {
+        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::A);
+        __clunion::clunion_A::dispatch_copy(__clunion_this(), *other.__clunion_this());
+    }
     A(int a_i_) {
-        __clunion_members.vindex = (__clunion::vindex_t)__clunion::clunion_A::Ids::A;
-        new (thiz()) __clunion::clunion_A::A(a_i_);
+        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::A);
+        new (__clunion_this()) __clunion::clunion_A::A(a_i_);
     }
     ~A() {
-        __clunion::clunion_A::dispatch_dtor(thiz());
+        __clunion::clunion_A::dispatch_dtor(__clunion_this());
     }
-
-    __clunion::clunion_A::A *operator->() {
-        return thiz();
+    __clunion::clunion_A::A *operator->() const {
+        return __clunion_this();
+    }
+    A &operator=(const A &other) {
+        if(this != &other) {
+            __clunion::clunion_A::dispatch_assign(__clunion_this(), *other.__clunion_this());
+        }
+        return *this;
     }
 };
 
@@ -175,31 +216,39 @@ clunion B : public A {
 */
 struct B : public A {
 protected:
-    __clunion::clunion_A::B *thiz() {
-        return (__clunion::clunion_A::B *)A::thiz();
+    __clunion::clunion_A::B *__clunion_this() const {
+        return (__clunion::clunion_A::B *)A::__clunion_this();
     }
 public:
     B(int a_i_, int b_i_) {
-        __clunion_members.vindex = (__clunion::vindex_t)__clunion::clunion_A::Ids::B;
-        new (thiz()) __clunion::clunion_A::B(a_i_, b_i_);
+        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::B);
+        new (__clunion_this()) __clunion::clunion_A::B(a_i_, b_i_);
     }
-    __clunion::clunion_A::B *operator->() {
-        return thiz();
+    __clunion::clunion_A::B *operator->() const {
+        return __clunion_this();
+    }
+    B &operator=(const B &other) {
+        if(this != &other) {
+            __clunion::clunion_A::dispatch_assign(__clunion_this(), *other.__clunion_this());
+        }
+        return *this;
     }
 };
 
 int main(int argc, const char **argv) {
 /*
-    shared_ptr<A> ap = make_shared<A>(11);
-    (*ap)->secho();
-    (*ap)->vecho();
+    B b0{42, 52};
+    A &ab = b0;
+    ab->secho();
+    ab->vecho();
+    B b1{11, 12};
+    b1->secho();
+    b1->vecho();
+    b1 = b0;
+    b1->secho();
+    b1->vecho();
 */
-
-    B b{42, 52};
-    A &a = b;
-    a->secho();
-    a->vecho();
-
-    echo(sizeof(A));
-    echo(sizeof(B));
+    A aa{100};
+    A a1{aa};
+    a1->vecho();
 }
