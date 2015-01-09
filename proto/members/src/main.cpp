@@ -3,34 +3,125 @@
 using namespace std;
 
 struct NonPOD0 {
-    NonPOD0() {
-        cout << "NonPOD0()" << endl;
+    const char *id;
+    NonPOD0(const char *id_) : id(id_) {
+        cout << "NonPOD0(" << id << ")" << endl;
     }
     ~NonPOD0() {
-        cout << "~NonPOD0()" << endl;
+        cout << "~NonPOD0(" << id << ")" << endl;
     }
 };
 
 namespace __clunion {
+    typedef unsigned int vindex_t;
+    template<typename T> constexpr
+    T const& max(T const& a, T const& b) {
+        return a > b ? a : b;
+    }
+
     namespace clunion_A {
+
         enum class Ids {
-            A, B, C, D
+            A, B
         };
 
-        void dispatch_dtor(void *a_);
+        void dispatch_vecho(void *thiz);
+
+        struct A {
+            int a_i;
+            NonPOD0 np0;
+
+            A(int a_i_) : np0("np0") {
+                cout << "A(" << a_i_ << ")" << endl;
+                a_i = a_i_;
+            }
+            ~A() {
+                cout << "~A()" << endl;
+            }
+            void vecho() {
+                dispatch_vecho(this);
+            }
+            void __clunion_virtual_vecho() {
+                cout << "A::vecho(), a_i=" << a_i << endl;
+            }
+            void secho() {
+                cout << "A::secho()" << endl;
+            }
+            static void __clunion_call_dtor(void *thiz) {
+                ((A *)thiz)->~A();
+            }
+            static void __clunion_call_vecho(void *thiz) {
+                ((A *)thiz)->__clunion_virtual_vecho();
+            }
+        };
+
+        struct B : public A {
+            int b_i;
+            NonPOD0 np1;
+
+            B(int a_i_, int b_i_) : A(a_i_), np1("np1") {
+                cout << "B(" << a_i_ << ", " << b_i_ << ")" << endl;
+                b_i = b_i_;
+            }
+            ~B() {
+                cout << "~B()" << endl;
+            }
+            void vecho() {
+                dispatch_vecho(this);
+            }
+            void __clunion_virtual_vecho() {
+                cout << "B::vecho(), a_i=" << a_i << ", b_i=" << b_i << endl;
+            }
+            void secho() {
+                cout << "B::secho()" << endl;
+            }
+            static void __clunion_call_dtor(void *thiz) {
+                ((B *)thiz)->~B();
+            }
+            static void __clunion_call_vecho(void *thiz) {
+                ((B *)thiz)->__clunion_virtual_vecho();
+            }
+        };
+
+        constexpr size_t sizeof_A_members = max(sizeof(A), sizeof(B));
+
+        struct Vtable {
+            void (*dtor)(void*);
+            void (*vecho)(void*);
+        };
+        Vtable vtables[] = {
+            {&A::__clunion_call_dtor, &A::__clunion_call_vecho},
+            {&B::__clunion_call_dtor, &B::__clunion_call_vecho}
+        };
+
+        vindex_t get_vindex(void *thiz) {
+            return *(vindex_t *)((char*)thiz + sizeof_A_members);
+        }
+
+        void dispatch_dtor(void *thiz) {
+            vtables[get_vindex(thiz)].dtor(thiz);
+        }
+        void dispatch_vecho(void *thiz) {
+            vtables[get_vindex(thiz)].vecho(thiz);
+        }
     }
 }
 
 /*
 clunion A {
     int a_i;
+    NonPOD0 np0;
 
-    A(int a_i_) {
+    A(int a_i_) : np0("np0") {
+        cout << "A(" << a_i_ << ")" << endl;
         a_i = a_i_;
+    }
+    ~A() {
+        cout << "~A()" << endl;
     }
 
     virtual void vecho() {
-        cout << "A, a_i=" << a_i << endl;
+        cout << "A::vecho(), a_i=" << a_i << endl;
     }
 
     void secho() {
@@ -39,47 +130,37 @@ clunion A {
 };
 */
 struct A {
-    int a_i;
-    NonPOD0 np;
+protected:
+    A() {}
     struct __clunion_members_t {
-        int pad0;
-        uchar pad[2];
-        uchar id;
-
-        static void ctor(A *thiz, int a_i_) {
-            cout << "A::ctor()" << endl;
-            thiz->a_i = a_i_;
-            
-        }
-        static void dtor(A *thiz) {
-            cout << "A::dtor()" << endl;
-        }
+        char buffer[__clunion::clunion_A::sizeof_A_members];
+        __clunion::vindex_t vindex;
     } __clunion_members;
+    __clunion::clunion_A::A *thiz() {
+        return ((__clunion::clunion_A::A *)__clunion_members.buffer);
+    }
 
+public:
     A(int a_i_) {
-        cout << "A()" << endl;
-        __clunion_members.id = (uchar)__clunion::clunion_A::Ids::A;
-        __clunion_members_t::ctor(this, a_i_);
+        __clunion_members.vindex = (__clunion::vindex_t)__clunion::clunion_A::Ids::A;
+        new (thiz()) __clunion::clunion_A::A(a_i_);
     }
     ~A() {
-        cout << "~A()" << endl;
-        __clunion::clunion_A::dispatch_dtor(this);
+        __clunion::clunion_A::dispatch_dtor(thiz());
     }
 
-    static void vecho(A *thiz) {
-        cout << "A, a_i=" << thiz->a_i << endl;
-    }
-
-    void secho() {
-        cout << "A::secho()" << endl;
+    __clunion::clunion_A::A *operator->() {
+        return thiz();
     }
 };
 
 /*
 clunion B : public A {
     int b_i;
+    NonPOD0 np1;
 
-    B(int a_i_, int b_i_) : A(a_i) {
+    B(int a_i_, int b_i_) : A(a_i_), np1("np1") {
+        cout << "B(" << a_i_ << ", " << b_i_ << ")" << endl;
         b_i = b_i_;
     }
 
@@ -92,128 +173,33 @@ clunion B : public A {
     }
 };
 */
-struct B {
-    int a_i;
-    NonPOD0 np;
-    int b_i;
-    struct __clunion_members_t {
-        uchar pad[2];
-        uchar id;
-
-        static void ctor(B *thiz, int a_i_, int b_i_) {
-            cout << "B::ctor()" << endl;
-            thiz->b_i = b_i_;
-        }
-
-        static void dtor(A *thiz) {
-            cout << "B::dtor()" << endl;
-            A::__clunion_members_t::dtor(thiz);
-        }
-    } __clunion_members;
-
+struct B : public A {
+protected:
+    __clunion::clunion_A::B *thiz() {
+        return (__clunion::clunion_A::B *)A::thiz();
+    }
+public:
     B(int a_i_, int b_i_) {
-        cout << "B()" << endl;
-        __clunion_members.id = (uchar)__clunion::clunion_A::Ids::B;
-        A::__clunion_members_t::ctor((A*)this, a_i_);
-        __clunion_members_t::ctor(this, a_i_, b_i_);
+        __clunion_members.vindex = (__clunion::vindex_t)__clunion::clunion_A::Ids::B;
+        new (thiz()) __clunion::clunion_A::B(a_i_, b_i_);
     }
-
-    ~B() {
-        cout << "~B()" << endl;
-        __clunion::clunion_A::dispatch_dtor(this);
-    }
-
-    static void vecho(B *thiz) {
-        cout << "B, a_i=" << thiz->a_i << ", b_i=" << thiz->b_i << endl;
-    }
-
-    void secho() {
-        cout << "B::secho()" << endl;
+    __clunion::clunion_A::B *operator->() {
+        return thiz();
     }
 };
 
-/*
-clunion C : public A {
-    int c_i;
-
-    virtual void vecho() {
-        cout << "C, a_i=" << a_i << ", c_i=" << c_i << endl;
-    }
-};
-*/
-struct C {
-    int a_i;
-    NonPOD0 np;
-    int c_i;
-    struct __clunion_members_t {
-        uchar pad[2];
-        uchar id;
-    } __clunion_members;
-};
-
-/*
-clunion D : public C {
-    short d_i;
-
-    virtual void vecho() {
-        cout << "C, a_i=" << a_i << ", c_i=" << c_i << endl;
-    }
-};
-*/
-struct D {
-    int a_i;
-    NonPOD0 np;
-    int c_i;
-    short d_i;
-    struct __clunion_members_t {
-        uchar id;
-    } __clunion_members;
-};
-
-namespace __clunion {
-    namespace clunion_A {
-        struct Vtable {
-            void (*dtor)(void*);
-            void (*vecho)(void*);
-        };
-        Vtable vtables[] = {
-            {(void (*)(void*))&A::__clunion_members_t::dtor, (void (*)(void*))&A::vecho},
-            {(void (*)(void*))&B::__clunion_members_t::dtor, (void (*)(void*))&B::vecho},
-        };
-
-        inline void dispatch_vecho(void *a_) {
-            vtables[((A*)a_)->__clunion_members.id].vecho(a_);
-        }
-
-        inline void dispatch_dtor(void *a_) {
-            vtables[((A*)a_)->__clunion_members.id].dtor(a_);
-        }
-    };
-};
-
-/*
 int main(int argc, const char **argv) {
-    B b(42, 2);
+/*
+    shared_ptr<A> ap = make_shared<A>(11);
+    (*ap)->secho();
+    (*ap)->vecho();
+*/
+
+    B b{42, 52};
     A &a = b;
-
-    a.vecho();
-    a.secho();
-    b.vecho();
-    b.secho();
-
-    return 0;
-}
-*/
-int main(int argc, const char **argv) {
-    B *b = new B(42, 2);
-    A *a = reinterpret_cast<A *>(b);
-
-    __clunion::clunion_A::dispatch_vecho(a);
     a->secho();
-    __clunion::clunion_A::dispatch_vecho(b);
-    b->secho();
+    a->vecho();
 
-    delete a;
-
-    return 0;
+    echo(sizeof(A));
+    echo(sizeof(B));
 }
