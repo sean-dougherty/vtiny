@@ -1,0 +1,42 @@
+#include <iostream>
+using namespace std;
+
+#define clunion struct __attribute__((annotate("clunion")))
+
+clunion A {
+    int a_i;
+
+    virtual void vecho() {
+        cout << "A, a_i=" << a_i << endl;
+    }
+
+    void secho() {
+        cout << "A::secho()" << endl;
+    }
+};
+
+clunion B : public A {
+    int b_i;
+
+    virtual void vecho() {
+        cout << "B, a_i=" << a_i << ", b_i=" << b_i << endl;
+    }
+
+    void secho() {
+        cout << "B::secho()" << endl;
+    }
+};
+
+int main(int argc, const char **argv) {
+    B b;
+    b.a_i = 42;
+    b.b_i = 2;
+    A &a = b;
+
+    a.vecho();
+    a.secho();
+    b.vecho();
+    b.secho();
+
+    return 0;
+}
