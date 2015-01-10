@@ -3,6 +3,8 @@
 
 using namespace std;
 
+#define DYNAMIC_TYPE_CHECKING
+
 struct NonPOD0 {
     string id;
     NonPOD0(const char *id_) : id(id_) {
@@ -32,12 +34,15 @@ namespace __clunion {
         struct A {
             int a_i;
             NonPOD0 np0;
+#ifdef DYNAMIC_TYPE_CHECKING
             vindex_t __clunion_vindex_decl;
+#endif
             vindex_t __clunion_vindex_actual;
-
+#ifdef DYNAMIC_TYPE_CHECKING
             void __clunion_set_vindex_decl(Ids id) {
                 __clunion_vindex_decl = (vindex_t)id;
             }
+#endif
             void __clunion_set_vindex_actual(Ids id) {
                 __clunion_vindex_actual = (vindex_t)id;
             }
@@ -119,15 +124,18 @@ namespace __clunion {
             {&B::__clunion_call_copy, &B::__clunion_call_assign, &B::__clunion_call_dtor, &B::__clunion_call_vecho}
         };
 
+#ifdef DYNAMIC_TYPE_CHECKING
         vindex_t get_vindex_decl(const A *thiz) {
             return thiz->__clunion_vindex_decl;
         }
+#endif
         vindex_t get_vindex_actual(const A *thiz) {
             return thiz->__clunion_vindex_actual;
         }
         void set_vindex_actual(A *thiz, vindex_t vindex) {
             thiz->__clunion_vindex_actual = vindex;
         }
+#ifdef DYNAMIC_TYPE_CHECKING
         void check_cast(A *thiz, vindex_t to) {
             switch(Ids(get_vindex_decl(thiz))) {
             case Ids::A:
@@ -139,6 +147,7 @@ namespace __clunion {
                 break;
             }
         }
+#endif
 
         void dispatch_copy(A *thiz, const A &other) {
             set_vindex_actual(thiz, get_vindex_actual(&other));
@@ -152,7 +161,9 @@ namespace __clunion {
         }
         void dispatch_assign(A *thiz, const A &other) {
             if(get_vindex_actual(thiz) != get_vindex_actual(&other)) {
+#ifdef DYNAMIC_TYPE_CHECKING
                 check_cast(thiz, get_vindex_actual(&other));
+#endif
                 dispatch_dtor(thiz);
                 dispatch_copy(thiz, other);
             } else {
@@ -194,11 +205,15 @@ protected:
 
 public:
     A(const A &other) {
+#ifdef DYNAMIC_TYPE_CHECKING
         __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
+#endif
         __clunion::clunion_A::dispatch_copy(__clunion_this(), *other.__clunion_this());
     }
     A(int a_i_) {
+#ifdef DYNAMIC_TYPE_CHECKING
         __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
+#endif
         __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::A);
         new (__clunion_this()) __clunion::clunion_A::A(a_i_);
     }
@@ -242,11 +257,15 @@ protected:
     }
 public:
     B(const B &other) {
+#ifdef DYNAMIC_TYPE_CHECKING
         __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
+#endif
         __clunion::clunion_A::dispatch_copy(__clunion_this(), *other.__clunion_this());
     }
     B(int a_i_, int b_i_) {
+#ifdef DYNAMIC_TYPE_CHECKING
         __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
+#endif
         __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::B);
         new (__clunion_this()) __clunion::clunion_A::B(a_i_, b_i_);
     }
@@ -267,6 +286,7 @@ int main(int argc, const char **argv) {
     A a{42};
     B b1{b};
     cout << "----------" << endl;
+    ar = a;
     a = ar;
     cout << "----------" << endl;
 }
