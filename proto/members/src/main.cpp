@@ -24,18 +24,16 @@ namespace __clunion {
     }
 
     namespace clunion_A {
+        namespace target {
+            struct A;
+        }
+        namespace dispatch {
+            void vecho(struct target::A *thiz);
+        }
 
         enum class Ids {
             A, B
         };
-
-        namespace target {
-            struct A;
-        }
-
-        namespace dispatch {
-            void vecho(struct target::A *thiz);
-        }
 
         namespace target {
             struct A {
@@ -45,15 +43,6 @@ namespace __clunion {
                 vindex_t __clunion_vindex_decl;
 #endif
                 vindex_t __clunion_vindex_actual;
-
-#ifdef DYNAMIC_TYPE_CHECKING
-                void __clunion_set_vindex_decl(Ids id) {
-                    __clunion_vindex_decl = (vindex_t)id;
-                }
-#endif
-                void __clunion_set_vindex_actual(Ids id) {
-                    __clunion_vindex_actual = (vindex_t)id;
-                }
 
                 A(int a_i_) : np0("np0") {
                     cout << "A(" << a_i_ << ")" << endl;
@@ -94,6 +83,33 @@ namespace __clunion {
                     cout << "B::secho()" << endl;
                 }
             };
+
+            Ids get_actual(const target::A *thiz) {
+                return (Ids)thiz->__clunion_vindex_actual;
+            }
+            void set_actual(target::A *thiz, Ids id) {
+                thiz->__clunion_vindex_actual = (vindex_t)id;
+            }
+
+#ifdef DYNAMIC_TYPE_CHECKING
+            Ids get_decl(const target::A *thiz) {
+                return (Ids)thiz->__clunion_vindex_decl;
+            }
+            void set_decl(target::A *thiz, Ids id) {
+                thiz->__clunion_vindex_decl = (vindex_t)id;
+            }
+            void check_cast(target::A *thiz, Ids to) {
+                switch(get_decl(thiz)) {
+                case Ids::A:
+                    break;
+                case Ids::B:
+                    if(to != Ids::B) {
+                        throw std::bad_cast();
+                    }
+                    break;
+                }
+            }
+#endif
 
             constexpr size_t sizeof_members = max(sizeof(A), sizeof(B));
         }
@@ -150,55 +166,117 @@ namespace __clunion {
                 }
             };
 
-#ifdef DYNAMIC_TYPE_CHECKING
-            vindex_t get_vindex_decl(const target::A *thiz) {
-                return thiz->__clunion_vindex_decl;
-            }
-#endif
-            vindex_t get_vindex_actual(const target::A *thiz) {
-                return thiz->__clunion_vindex_actual;
-            }
-            void set_vindex_actual(target::A *thiz, vindex_t vindex) {
-                thiz->__clunion_vindex_actual = vindex;
-            }
-#ifdef DYNAMIC_TYPE_CHECKING
-            void check_cast(target::A *thiz, vindex_t to) {
-                switch(Ids(get_vindex_decl(thiz))) {
-                case Ids::A:
-                    break;
-                case Ids::B:
-                    if(to != vindex_t(Ids::B)) {
-                        throw std::bad_cast();
-                    }
-                    break;
-                }
-            }
-#endif
-
             void copy(target::A *thiz, const target::A &other) {
-                set_vindex_actual(thiz, get_vindex_actual(&other));
-                vtables[get_vindex_actual(thiz)].copy(thiz, other);
+                target::set_actual(thiz, target::get_actual(&other));
+                vtables[(vindex_t)target::get_actual(thiz)].copy(thiz, other);
             }
             void dtor(target::A *thiz) {
-                vtables[get_vindex_actual(thiz)].dtor(thiz);
+                vtables[(vindex_t)target::get_actual(thiz)].dtor(thiz);
             }
             void vecho(target::A *thiz) {
-                vtables[get_vindex_actual(thiz)].vecho(thiz);
+                vtables[(vindex_t)target::get_actual(thiz)].vecho(thiz);
             }
             void assign(target::A *thiz, const target::A &other) {
-                if(get_vindex_actual(thiz) != get_vindex_actual(&other)) {
+                if(target::get_actual(thiz) != target::get_actual(&other)) {
 #ifdef DYNAMIC_TYPE_CHECKING
-                    check_cast(thiz, get_vindex_actual(&other));
+                    check_cast(thiz, target::get_actual(&other));
 #endif
                     dtor(thiz);
                     copy(thiz, other);
                 } else {
-                    vtables[get_vindex_actual(thiz)].assign(thiz, other);
+                    vtables[(vindex_t)target::get_actual(thiz)].assign(thiz, other);
                 }
             }
         }
+
+        namespace container {
+            struct A {
+            protected:
+                A() {}
+                char members[target::sizeof_members];
+                target::A *thiz() const {
+                    return ((target::A *)members);
+                }
+
+            public:
+                A(const A &other) {
+#ifdef DYNAMIC_TYPE_CHECKING
+                    target::set_decl(thiz(), Ids::A);
+#endif
+                    dispatch::copy(thiz(), *other.thiz());
+                }
+                A(int a_i_) {
+#ifdef DYNAMIC_TYPE_CHECKING
+                    target::set_decl(thiz(), Ids::A);
+#endif
+                    target::set_actual(thiz(), Ids::A);
+                    new (thiz()) target::A(a_i_);
+                }
+                ~A() {
+                    dispatch::dtor(thiz());
+                }
+                target::A *operator->() const {
+                    return thiz();
+                }
+                A &operator=(const A &other) {
+                    if(this != &other) {
+                        dispatch::assign(thiz(), *other.thiz());
+                    }
+                    return *this;
+                }
+            };
+
+            struct B : public A {
+            protected:
+                target::B *thiz() const {
+                    return (target::B *)A::thiz();
+                }
+            public:
+                B(const B &other) {
+#ifdef DYNAMIC_TYPE_CHECKING
+                    target::set_decl(thiz(), Ids::B);
+#endif
+                    dispatch::copy(thiz(), *other.thiz());
+                }
+                B(int a_i_, int b_i_) {
+#ifdef DYNAMIC_TYPE_CHECKING
+                    target::set_decl(thiz(), Ids::B);
+#endif
+                    target::set_actual(thiz(), Ids::B);
+                    new (thiz()) target::B(a_i_, b_i_);
+                }
+                target::B *operator->() const {
+                    return thiz();
+                }
+                B &operator=(const B &other) {
+                    if(this != &other) {
+                        dispatch::assign(thiz(), *other.thiz());
+                    }
+                    return *this;
+                }
+            };
+        }
     }
 }
+
+typedef __clunion::clunion_A::container::A A;
+typedef __clunion::clunion_A::container::B B;
+
+int main(int argc, const char **argv) {
+    B b{11,12};
+    b->secho();
+    b->vecho();
+
+    A &ar{b};
+    ar->secho();
+    ar->vecho();
+
+    A a{42};
+    a->secho();
+    a->vecho();
+}
+
+//todo: clunion C : public A
 
 /*
 clunion A {
@@ -222,42 +300,6 @@ clunion A {
     }
 };
 */
-struct A {
-protected:
-    A() {}
-    char __clunion_members[__clunion::clunion_A::target::sizeof_members];
-    __clunion::clunion_A::target::A *__clunion_this() const {
-        return ((__clunion::clunion_A::target::A *)__clunion_members);
-    }
-
-public:
-    A(const A &other) {
-#ifdef DYNAMIC_TYPE_CHECKING
-        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
-#endif
-        __clunion::clunion_A::dispatch::copy(__clunion_this(), *other.__clunion_this());
-    }
-    A(int a_i_) {
-#ifdef DYNAMIC_TYPE_CHECKING
-        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
-#endif
-        __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::A);
-        new (__clunion_this()) __clunion::clunion_A::target::A(a_i_);
-    }
-    ~A() {
-        __clunion::clunion_A::dispatch::dtor(__clunion_this());
-    }
-    __clunion::clunion_A::target::A *operator->() const {
-        return __clunion_this();
-    }
-    A &operator=(const A &other) {
-        if(this != &other) {
-            __clunion::clunion_A::dispatch::assign(__clunion_this(), *other.__clunion_this());
-        }
-        return *this;
-    }
-};
-
 /*
 clunion B : public A {
     int b_i;
@@ -277,48 +319,3 @@ clunion B : public A {
     }
 };
 */
-struct B : public A {
-protected:
-    __clunion::clunion_A::target::B *__clunion_this() const {
-        return (__clunion::clunion_A::target::B *)A::__clunion_this();
-    }
-public:
-    B(const B &other) {
-#ifdef DYNAMIC_TYPE_CHECKING
-        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
-#endif
-        __clunion::clunion_A::dispatch::copy(__clunion_this(), *other.__clunion_this());
-    }
-    B(int a_i_, int b_i_) {
-#ifdef DYNAMIC_TYPE_CHECKING
-        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
-#endif
-        __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::B);
-        new (__clunion_this()) __clunion::clunion_A::target::B(a_i_, b_i_);
-    }
-    __clunion::clunion_A::target::B *operator->() const {
-        return __clunion_this();
-    }
-    B &operator=(const B &other) {
-        if(this != &other) {
-            __clunion::clunion_A::dispatch::assign(__clunion_this(), *other.__clunion_this());
-        }
-        return *this;
-    }
-};
-
-int main(int argc, const char **argv) {
-    B b{11,12};
-    b->secho();
-    b->vecho();
-
-    A &ar{b};
-    ar->secho();
-    ar->vecho();
-
-    A a{42};
-    a->secho();
-    a->vecho();
-}
-
-//todo: clunion C : public A
