@@ -1,3 +1,4 @@
+#include <typeinfo>
 #include "util.h"
 
 using namespace std;
@@ -31,10 +32,14 @@ namespace __clunion {
         struct A {
             int a_i;
             NonPOD0 np0;
-            vindex_t __clunion_vindex;
+            vindex_t __clunion_vindex_decl;
+            vindex_t __clunion_vindex_actual;
 
-            void __clunion_set_vindex(Ids id) {
-                __clunion_vindex = (vindex_t)id;
+            void __clunion_set_vindex_decl(Ids id) {
+                __clunion_vindex_decl = (vindex_t)id;
+            }
+            void __clunion_set_vindex_actual(Ids id) {
+                __clunion_vindex_actual = (vindex_t)id;
             }
 
             A(int a_i_) : np0("np0") {
@@ -114,29 +119,44 @@ namespace __clunion {
             {&B::__clunion_call_copy, &B::__clunion_call_assign, &B::__clunion_call_dtor, &B::__clunion_call_vecho}
         };
 
-        vindex_t get_vindex(const A *thiz) {
-            return thiz->__clunion_vindex;
+        vindex_t get_vindex_decl(const A *thiz) {
+            return thiz->__clunion_vindex_decl;
         }
-        void set_vindex(A *thiz, vindex_t vindex) {
-            thiz->__clunion_vindex = vindex;
+        vindex_t get_vindex_actual(const A *thiz) {
+            return thiz->__clunion_vindex_actual;
+        }
+        void set_vindex_actual(A *thiz, vindex_t vindex) {
+            thiz->__clunion_vindex_actual = vindex;
+        }
+        void check_cast(A *thiz, vindex_t to) {
+            switch(Ids(get_vindex_decl(thiz))) {
+            case Ids::A:
+                break;
+            case Ids::B:
+                if(to != vindex_t(Ids::B)) {
+                    throw std::bad_cast();
+                }
+                break;
+            }
         }
 
         void dispatch_copy(A *thiz, const A &other) {
-            vtables[get_vindex(thiz)].copy(thiz, other);
+            set_vindex_actual(thiz, get_vindex_actual(&other));
+            vtables[get_vindex_actual(thiz)].copy(thiz, other);
         }
         void dispatch_dtor(A *thiz) {
-            vtables[get_vindex(thiz)].dtor(thiz);
+            vtables[get_vindex_actual(thiz)].dtor(thiz);
         }
         void dispatch_vecho(A *thiz) {
-            vtables[get_vindex(thiz)].vecho(thiz);
+            vtables[get_vindex_actual(thiz)].vecho(thiz);
         }
         void dispatch_assign(A *thiz, const A &other) {
-            if(get_vindex(thiz) != get_vindex(&other)) {
+            if(get_vindex_actual(thiz) != get_vindex_actual(&other)) {
+                check_cast(thiz, get_vindex_actual(&other));
                 dispatch_dtor(thiz);
-                set_vindex(thiz, get_vindex(&other));
                 dispatch_copy(thiz, other);
             } else {
-                vtables[get_vindex(thiz)].assign(thiz, other);
+                vtables[get_vindex_actual(thiz)].assign(thiz, other);
             }
         }
     }
@@ -174,11 +194,12 @@ protected:
 
 public:
     A(const A &other) {
-        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::A);
+        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
         __clunion::clunion_A::dispatch_copy(__clunion_this(), *other.__clunion_this());
     }
     A(int a_i_) {
-        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::A);
+        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::A);
+        __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::A);
         new (__clunion_this()) __clunion::clunion_A::A(a_i_);
     }
     ~A() {
@@ -220,8 +241,13 @@ protected:
         return (__clunion::clunion_A::B *)A::__clunion_this();
     }
 public:
+    B(const B &other) {
+        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
+        __clunion::clunion_A::dispatch_copy(__clunion_this(), *other.__clunion_this());
+    }
     B(int a_i_, int b_i_) {
-        __clunion_this()->__clunion_set_vindex(__clunion::clunion_A::Ids::B);
+        __clunion_this()->__clunion_set_vindex_decl(__clunion::clunion_A::Ids::B);
+        __clunion_this()->__clunion_set_vindex_actual(__clunion::clunion_A::Ids::B);
         new (__clunion_this()) __clunion::clunion_A::B(a_i_, b_i_);
     }
     __clunion::clunion_A::B *operator->() const {
@@ -236,19 +262,19 @@ public:
 };
 
 int main(int argc, const char **argv) {
-/*
-    B b0{42, 52};
-    A &ab = b0;
-    ab->secho();
-    ab->vecho();
-    B b1{11, 12};
-    b1->secho();
-    b1->vecho();
-    b1 = b0;
-    b1->secho();
-    b1->vecho();
-*/
-    A aa{100};
-    A a1{aa};
-    a1->vecho();
+    B b{11,12};
+    A &ar = b;
+    A a{42};
+    B b1{b};
+    cout << "----------" << endl;
+    a = ar;
+    cout << "----------" << endl;
 }
+
+//todo: clunion C : public A
+
+//todo: should fail:
+//      B b;
+//      A &a0 = b;
+//      A a1;
+//      a0 = a1; // bad!
