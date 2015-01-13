@@ -1,7 +1,13 @@
+//todo: determine if method is const!
+//todo: properly find end of clunion decl.
+//todo: indent clunions
+//todo: remove trailing ; for pure virtual
+
 #include <clang-c/Index.h>
 
 #include <assert.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -118,6 +124,12 @@ ostream &operator<<(ostream &out, const CXType &c) {return out << spelling(c);}
 ostream &operator<<(ostream &out, const CXCursorKind &k) {return out << str(k);}
 ostream &operator<<(ostream &out, const CXSourceLocation &l) {return out << file_location(l);}
 ostream &operator<<(ostream &out, const CXSourceRange &r) {return out << start(r) << " -> " << end(r);}
+ostream &operator<<(ostream &out, const ostream &) {return out;}
+
+void reset(stringstream &ss) {
+    ss.str("");
+    ss.clear();
+}
 
 #define verbose(msg)
 //#define verbose(msg) cout << msg << endl
@@ -266,6 +278,10 @@ vector<CXType> get_argument_types(CXCursor cursor) {
     return result;
 }
 
+bool is_pure_virtual(CXCursor cursor) {
+    return clang_CXXMethod_isPureVirtual(cursor);
+}
+
 bool is_virtual(CXCursor cursor) {
     return clang_CXXMethod_isVirtual(cursor);
 }
@@ -274,13 +290,153 @@ bool is_variadic(CXCursor cursor) {
     return clang_isFunctionTypeVariadic(type(cursor));
 }
 
-struct SourceExtractor {
-    static map<string, unique_ptr<char>> file_buffer_cache;
+bool is_const(CXCursor cursor) {
+    return clang_isConstQualifiedType(type(cursor));
+}
 
-    static char *get_file_buffer(const string &path) {
+struct Method {
+    CXCursor cursor;
+    string signature;
+
+    Method() {
+    }
+    Method(CXCursor cursor_);
+
+    bool is_virtual() {
+        return ::is_virtual(cursor);
+    }
+    bool is_pure_virtual() {
+        return ::is_pure_virtual(cursor);
+    }
+
+    friend ostream &operator<<(ostream &out, const Method &m) {
+        return out << m.signature;
+    }
+};
+
+struct Clunion {
+    typedef shared_ptr<Clunion> ptr;
+    static map<string, shared_ptr<Clunion>> all;
+
+    CXCursor cursor;
+    string name;
+    shared_ptr<Clunion> base;
+    vector<shared_ptr<Clunion>> derivations;
+    map<string, Method> methods;
+    
+    Clunion(CXCursor cursor_)
+    : cursor(cursor_)
+    , name(spelling(type(cursor))) {
+
+        for(auto &c: get_methods(cursor)) {
+            Method m{c};
+            methods[m.signature] = m;
+        }
+    }
+
+    static void declare(CXCursor c) {
+        auto ptr = make_shared<Clunion>(c);
+        assert(all.find(ptr->name) == all.end());
+        all[ptr->name] = ptr;
+    }
+
+    static shared_ptr<Clunion> get(string s) {
+        return all[s];
+    }
+    static shared_ptr<Clunion> get(CXType t) {
+        return get(spelling(t));
+    }
+    static shared_ptr<Clunion> get(CXCursor c) {
+        return get(type(c));
+    }
+    
+    static void resolve_bases() {
+        for(auto &kv: all) {
+            shared_ptr<Clunion> ptr = kv.second;
+            vector<CXCursor> bases = get_bases(ptr->cursor);
+            if(bases.size() > 0) {
+                if(bases.size() > 1) {
+                    err(start(ptr->cursor) << ": Multiple inheritance not supported.");
+                }
+                ptr->base = get(bases.front());
+                ptr->base->derivations.push_back(ptr);
+            }
+        }
+    }
+
+    friend ostream &operator<<(ostream &out, Clunion &c) {
+        return out << c.name;
+    }
+    friend ostream &operator<<(ostream &out, shared_ptr<Clunion> &c) {
+        return out << *c;
+    }
+};
+map<string, shared_ptr<Clunion>> Clunion::all;
+
+struct ClunionHierarchy {
+    static vector<ClunionHierarchy> all;
+
+    string name;
+    shared_ptr<Clunion> root;
+    vector<shared_ptr<Clunion>> members;
+    vector<Method> virtual_methods;
+
+    void find_members(shared_ptr<Clunion> &u) {
+        members.push_back(u);
+        for(auto &c: u->derivations) {
+            find_members(c);
+        }
+    }
+
+    void find_virtual_methods() {
+        map<string, Method> lookup;
+        for(auto &u: members) {
+            for(auto &kv: u->methods) {
+                auto &m = kv.second;
+                if(m.is_virtual()) {
+                    if(lookup.find(m.signature) == lookup.end()) {
+                        lookup[m.signature] = m;
+                        virtual_methods.push_back(m);
+                    }
+                }
+            }
+        }
+        
+    }
+
+    ClunionHierarchy(shared_ptr<Clunion> root_) : root(root_) {
+        find_members(root);
+        find_virtual_methods();
+
+        name = root->name;
+    }
+
+    static void resolve() {
+        for(auto &kv: Clunion::all) {
+            if(!kv.second->base) {
+                all.push_back(kv.second);
+            }
+        }
+    }
+
+    friend ostream &operator<<(ostream &out, ClunionHierarchy &h) {
+        return out << "Hierarchy(" << h.root << ")";
+    }
+};
+vector<ClunionHierarchy> ClunionHierarchy::all;
+
+struct SourceBuffer {
+    shared_ptr<char> data;
+    unsigned length;
+};
+
+struct SourceExtractor {
+    static map<string, SourceBuffer> file_buffer_cache;
+
+    static SourceBuffer get_file_buffer(const string &path) {
         auto it = file_buffer_cache.find(path);
         if(it != file_buffer_cache.end())
-            return it->second.get();
+            return it->second;
 
         verbose("Reading " << path);
         
@@ -305,9 +461,7 @@ struct SourceExtractor {
         fclose(f);
         
         buf[flen] = '\0';
-        file_buffer_cache[path] = unique_ptr<char>(buf);
-
-        return buf;
+        return file_buffer_cache[path] = {shared_ptr<char>(buf), unsigned(flen)};
     }
 
     static string extract(CXSourceLocation start,
@@ -323,8 +477,8 @@ struct SourceExtractor {
         result.resize(len);
         char *rbuf = const_cast<char *>(result.data());
 
-        char *fbuf = get_file_buffer(floc.path);
-        memcpy(rbuf, fbuf + start_offset, len);
+        shared_ptr<char> fbuf = get_file_buffer(floc.path).data;
+        memcpy(rbuf, fbuf.get() + start_offset, len);
 
         return result;
     }
@@ -344,33 +498,132 @@ struct SourceExtractor {
         return extract(tu, get_child(method, CXCursor_CompoundStmt));
     }
 };
-map<string, unique_ptr<char>> SourceExtractor::file_buffer_cache;
+map<string, SourceBuffer> SourceExtractor::file_buffer_cache;
+
+struct SourceEditor {
+    struct Edit {
+        enum Type {
+            Delete,
+            Insert
+        } type;
+        unsigned int offset;
+        unsigned int len;
+        string text;
+
+        Edit(Type t, unsigned o, unsigned l, const string &x = "")
+            : type(t), offset(o), len(l), text(x) {
+        }
+
+        friend bool operator<(const Edit &a, const Edit &b) {
+            return a.offset < b.offset;
+        }
+    };
+    vector<Edit> edits;
+
+    void insert(CXSourceLocation loc,
+                const string &text,
+                int hack = 0) {
+        edits.emplace_back(Edit::Insert, file_offset(loc) + hack, text.length(), text);
+    }
+
+    void replace(CXSourceLocation start,
+                 CXSourceLocation end,
+                 const string &text) {
+        cout << "replace(" << start << ", " << end << ", '" << text << "')" << endl;
+        unsigned s = file_offset(start);
+        unsigned e = file_offset(end);
+
+        edits.emplace_back(Edit::Delete, s, e - s, "");
+        edits.emplace_back(Edit::Insert, s, text.length(), text);
+    }
+
+    void commit(SourceBuffer src,
+                ostream &dst) {
+        stable_sort(edits.begin(), edits.end());
+
+        unsigned src_offset = 0;
+        for(Edit &e: edits) {
+            if(e.offset < src_offset) {
+                // we're in a deleted region. don't write anything.
+            } else {
+                unsigned len = e.offset - src_offset;
+                if(len) {
+                    dst.write(src.data.get() + src_offset, len);
+                    src_offset += len;
+                }
+            }
+
+            switch(e.type) {
+            case Edit::Delete:
+                src_offset += e.len;
+                break;
+            case Edit::Insert:
+                dst << e.text;
+                break;
+            default:
+                abort();
+            }
+        }
+
+        unsigned len = src.length - src_offset;
+        if(len) {
+            dst.write(src.data.get() + src_offset, len);
+        }
+    }
+};
 
 struct SourceGenerator {
-    static ostream &parameters(ostream &out, CXCursor method) {
-        out << "(";
+    static ostream &parameters(ostream &out,
+                               CXCursor method,
+                               bool parens = true) {
+        if(parens) {
+            out << "(";
+        }
+
         vector<CXType> arg_types = get_argument_types(method);
         vector<CXCursor> arg_names = get_arguments(method);
         for(size_t i = 0; i < arg_types.size(); i++) {
-            if(i != 0)
+            if((i != 0) || !parens)
                 out << ", ";
             out << spelling(arg_types[i]) << " ";
             out << spelling(arg_names[i]);
         }
-        out << ")";
+
+        if(parens) {
+            out << ")";
+        }
         return out;
     }
 
     static ostream &signature(ostream &out, CXCursor method) {
         out << spelling(get_return_type(method)) << " "
             << spelling(method);
-        return parameters(out, method);
+        parameters(out, method);
+        if(::is_const(method)) {
+            out << " const";
+        }
+        return out;
+    }
+    static string signature(CXCursor method) {
+        stringstream ss;
+        signature(ss, method);
+        return ss.str();
     }
 
     static ostream &signature_virtual_method_impl(ostream &out, CXCursor method) {
         out << spelling(get_return_type(method)) << " "
             << "__clunion_virtual_" << spelling(method);
         return parameters(out, method);
+    }
+
+    static ostream &signature_virtual_method_dispatch(ostream &out,
+                                                      const ClunionHierarchy &h,
+                                                      const Method &m) {
+        return out << spelling(get_return_type(m.cursor)) << " "
+                   << spelling(m.cursor)
+                   << "(target::" << h.name << " *thiz"
+                   << parameters(out, m.cursor, false)
+                   << out << ")";
     }
 
     static ostream &call_virtual_method_dispatch(ostream &out, CXCursor method) {
@@ -381,8 +634,7 @@ struct SourceGenerator {
         for(CXCursor arg: get_arguments(method)) {
             out << ", " << spelling(arg);
         }
-        out << ")";
-        return out;
+        return out << ")";
     }
 
     static ostream &virtual_method_accessor_decl(ostream &out, CXCursor method) {
@@ -394,93 +646,162 @@ struct SourceGenerator {
 
         return signature(out, method);
     }
-};
 
-struct Clunion {
-    static map<string, shared_ptr<Clunion>> all;
-
-    CXCursor cursor;
-    string name;
-    shared_ptr<Clunion> base;
-    
-    Clunion(CXCursor cursor_)
-    : cursor(cursor_)
-    , name(spelling(type(cursor))) {
-    }
-
-    static void declare(CXCursor c) {
-        auto ptr = make_shared<Clunion>(c);
-        assert(all.find(ptr->name) == all.end());
-        all[ptr->name] = ptr;
-    }
-
-    static shared_ptr<Clunion> get(string s) {
-        return all[s];
-    }
-    static shared_ptr<Clunion> get(CXType t) {
-        return get(spelling(t));
-    }
-    static shared_ptr<Clunion> get(CXCursor c) {
-        return get(type(c));
-    }
-    
-    static void resolve_hierarchy() {
-        for(auto &kv: all) {
-            shared_ptr<Clunion> ptr = kv.second;
-            vector<CXCursor> bases = get_bases(ptr->cursor);
-            if(bases.size() > 0) {
-                if(bases.size() > 1) {
-                    err(start(ptr->cursor) << ": Multiple inheritance not supported.");
-                }
-                ptr->base = get(bases.front());
-                cout << ptr->name << " extends " << ptr->base->name << endl;
+    template<typename T, typename U, typename V>
+    static ostream &join(ostream &out, const T &glue, const U &cont, const V &write) {
+        bool first = true;
+        for(auto &x: cont) {
+            if(!first) {
+                out << glue;
+            } else {
+                first = false;
             }
+            write(out, x);
+        }
+        return out;
+    }
+
+#define p(txt) out << txt << endl
+
+    static ostream &hierarchy_preamble(ostream &out, ClunionHierarchy &h) {
+        p("namespace __clunion { namespace clunion_" << h.name << " {");
+        p("    namespace target {");
+        p("      struct " << h.name << ";");
+        p("    }");
+        p("    namespace dispatch {");
+        p("      " << join(out,
+                           "\n      ",
+                           h.virtual_methods,
+                           [&h](ostream &out, const Method &m) {signature_virtual_method_dispatch(out, h, m) << ";";}));
+        p("    }");
+        p("    typedef unsigned char vindex_t;");
+        p("    enum class Ids {");
+        p("      " << join(out,
+                           ", ",
+                           h.members,
+                           [](ostream &out, const Clunion::ptr &c){out << c->name;}));
+        p("    };");
+        p("}}");
+
+        return out;
+    }
+
+    static ostream &clunion_target(ostream &out,
+                                   ClunionHierarchy &h,
+                                   Clunion::ptr &c) {
+        p("namespace __clunion { namespace clunion_" << h.name << " { namespace target {");
+        p("} } }");
+
+        return out;
+    }
+
+    static void generate(SourceEditor &editor,
+                         ClunionHierarchy &h) {
+        stringstream out;
+
+        hierarchy_preamble(out, h);
+        editor.insert(start(h.root->cursor), out.str());
+        reset(out);
+
+        for(Clunion::ptr &c: h.members) {
+            p("namespace __clunion { namespace clunion_" << h.name << " { namespace target {");
+            p("////////////////////////////////////////////////////");
+            p("/// clunion " << c->name);
+            p("////////////////////////////////////////////////////");
+            editor.insert(start(c->cursor), out.str());
+            reset(out);
+
+            for(auto &kv: c->methods) {
+                Method &m = kv.second;
+                if(m.is_pure_virtual()) {
+                    out << m.signature << "{ " << call_virtual_method_dispatch(out, m.cursor) << ";}";
+                    editor.replace(start(m.cursor),
+                                   end(m.cursor),
+                                   out.str());
+                    reset(out);
+                } else if(m.is_virtual()) {
+                    CXSourceLocation body_loc = start(get_child(m.cursor, CXCursor_CompoundStmt));
+                    editor.replace(start(m.cursor),
+                                   body_loc,
+                                   m.signature);
+
+                    p(" {" << call_virtual_method_dispatch(out, m.cursor) << ";}");
+                    out << "    " << signature_virtual_method_impl(out, m.cursor) << " ";
+                    editor.insert(body_loc, out.str());
+                    reset(out);
+                }
+            }
+
+            p("    vindex_t __clunion_vindex_actual;");
+            editor.insert(end(c->cursor),
+                          out.str(),
+                          -1);
+            reset(out);
+
+            p("}}}");
+            editor.insert(end(c->cursor), out.str(), 2); //hack
+            reset(out);
+        }
+
+        p("");
+        p("namespace __clunion { namespace clunion_" << h.name << " { namespace target {");
+        p("  template<typename T> constexpr");
+        p("      const T &max(const T &a, const T &b) {");
+        p("          return a > b ? a : b;");
+        p("      }");
+        p("      template<typename T, typename... U> constexpr");
+        p("      const T &max(const T &a, const U &... b) {");
+        p("          return max(a, max(b...));");
+        p("      }");
+        p("      constexpr size_t sizeof_members = max("
+          << join(out,
+                  ", ",
+                  h.members,
+                  [](ostream &out, const Clunion::ptr &c){out << "sizeof(" << c->name << ")";})
+          << ");");
+        p("}}}");
+        editor.insert(end(h.members.back()->cursor),
+                      out.str(),
+                      2);
+        reset(out);
+    }
+
+    static void generate(SourceEditor &editor) {
+        for(auto &h: ClunionHierarchy::all) {
+            generate(editor, h);
         }
     }
+
+#undef p
 };
-map<string, shared_ptr<Clunion>> Clunion::all;
+
+Method::Method(CXCursor cursor_)
+    : cursor(cursor_)
+    , signature(SourceGenerator::signature(cursor)) {
+}
 
 int main() {
     CXIndex index = clang_createIndex(1, 1);
 
     char *args[] = {};
     int nargs = sizeof(args) / sizeof(char*);
+    string path_in = "test/hello.cpp";
     CXTranslationUnit tu = clang_createTranslationUnitFromSourceFile(index,
-                                                                     "test/hello.cpp",
+                                                                     path_in.c_str(),
                                                                      nargs, args,
                                                                      0, nullptr);
     CXCursor cursor = clang_getTranslationUnitCursor(tu);
 
     for(auto &c: find_clunions(cursor)) {
         Clunion::declare(c);
-/*
-        cout << "  START = " << file_location(start(c)) << endl;
-        cout << "  END = " << file_location(end(c)) << endl;
-*/
-        for(auto &m: get_methods(c)) {
-/*
-            SourceGenerator::signature(cout, m) << endl;
-            SourceGenerator::call_virtual_method_dispatch(cout, m) << endl;
-            SourceGenerator::signature_virtual_method_impl(cout, m) << endl;
-*/
-            //cout << "'" << SourceExtractor::extract(tu, m) << "'" << endl;
-            //cout << "'" << SourceExtractor::extract_method_body(tu, m) << "'" << endl;
-/*
-            if(is_virtual(m)) {
-                cout << spelling(m) << ": accessor_decl=" << SourceGenerator::virtual_method_accessor_decl(m) << endl;
-            }
-            cout << "  method " << spelling(m) << " is_virtual=" << is_virtual(m) << " has_body=" << has_body(m) << endl;
-            cout << "    type spelling = " << spelling(type(m)) << endl;
-            cout << "    arguments:" << endl;
-            for(auto &a: get_arguments(m)) {
-                cout << "      spelling=" << spelling(a) << ", location=" << start(a) << " -> " << end(a) << endl;
-            }
-            cout << "    START = " << file_location(start(m)) << endl;
-            cout << "    END = " << file_location(end(m)) << endl;
-*/
-        }
     }
-    Clunion::resolve_hierarchy();
+    Clunion::resolve_bases();
+    ClunionHierarchy::resolve();
+
+    SourceEditor editor;
+    SourceGenerator::generate(editor);
+    editor.commit(SourceExtractor::get_file_buffer(path_in),
+                  cout);
     
     clang_disposeTranslationUnit(tu);
     

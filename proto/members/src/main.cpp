@@ -30,7 +30,11 @@ namespace __clunion {
         enum class Ids {
             A, B, C
         };
+    }
+}
 
+namespace __clunion {
+    namespace clunion_A {
         namespace target {
             struct A {
                 int a_i;
@@ -83,7 +87,13 @@ namespace __clunion {
                     cout << "B::secho()" << endl;
                 }
             };
+        }
+    }
+}
 
+namespace __clunion {
+    namespace clunion_A {
+        namespace target {
             struct C : public A {
                 int c_i0;
                 int c_i1;
@@ -104,7 +114,13 @@ namespace __clunion {
                     cout << "C::secho()" << endl;
                 }
             };
+        }
+    }
+}
 
+ namespace __clunion {
+    namespace clunion_A {
+        namespace target {
             Ids get_actual(const target::A *thiz) {
                 return (Ids)thiz->__clunion_vindex_actual;
             }
